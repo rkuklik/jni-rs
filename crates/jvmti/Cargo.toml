@@ -1,0 +1,24 @@
+[package]
+description = "Rust bindings to the JVMTI"
+documentation = "https://docs.rs/jvm-ti"
+readme = "README.md"
+keywords = ["ffi", "jni", "java"]
+categories = ["api-bindings"]
+name = "jvm-ti"
+repository = "https://github.com/rkuklik/jni-rs"
+# ¡When bumping version please also update it in examples and documentation!
+version = "0.0.0"
+
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jni-macros.workspace = true
+jni-sys.workspace = true
+jni.workspace = true
+jvmti-sys.workspace = true
+
+bitflags = "2"
+allocator-api2 = "0.4"
