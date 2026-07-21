@@ -8,10 +8,15 @@
 //! # Safe JVMTI Bindings in Rust
 //!
 //! This is a placeholder for now, development happens at:
-//! [https://github.com/rkuklik/jni-rs]
+//! <https://github.com/rkuklik/jni-rs>
 
 extern crate alloc;
 extern crate core;
 
 pub use jni;
 pub use jvmti_sys as sys;
+
+pub mod env;
+pub mod errors;
+pub mod macros;
+pub mod version;
