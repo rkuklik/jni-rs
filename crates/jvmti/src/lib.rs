@@ -19,4 +19,5 @@ pub use jvmti_sys as sys;
 pub mod env;
 pub mod errors;
 pub mod macros;
+pub mod memory;
 pub mod version;

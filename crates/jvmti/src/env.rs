@@ -50,7 +50,10 @@ impl EnvUntyped {
     /// # Safety
     ///
     /// The environment may not be used after this call. This includes currently
-    /// running event callbacks, which may be still running even after this call.
+    /// running event callbacks, destructors using [`EnvAlloc`] and others, which
+    /// may be still run automatically even after this call.
+    ///
+    /// [`EnvAlloc`]: crate::memory::EnvAlloc
     pub unsafe fn dispose(self) -> Result<()> {
         unsafe { invoke!(self, v1, DisposeEnvironment) }
     }
