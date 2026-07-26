@@ -21,6 +21,7 @@ pub mod caps;
 pub mod env;
 pub mod errors;
 pub mod events;
+pub mod heap;
 pub mod macros;
 pub mod memory;
 pub mod thread;
