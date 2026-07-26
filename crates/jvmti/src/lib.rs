@@ -17,6 +17,7 @@ pub use jni;
 pub use jvmti_sys as sys;
 
 pub mod agent;
+pub mod caps;
 pub mod env;
 pub mod errors;
 pub mod events;
