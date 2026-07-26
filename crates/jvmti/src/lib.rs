@@ -16,6 +16,7 @@ extern crate core;
 pub use jni;
 pub use jvmti_sys as sys;
 
+pub mod agent;
 pub mod env;
 pub mod errors;
 pub mod events;
