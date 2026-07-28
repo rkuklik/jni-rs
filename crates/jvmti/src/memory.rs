@@ -1,6 +1,9 @@
 use core::alloc::GlobalAlloc;
 use core::alloc::Layout;
 use core::ffi::c_char;
+use core::mem::transmute;
+use core::ops::Deref;
+use core::ops::DerefMut;
 use core::ptr;
 use core::ptr::NonNull;
 
@@ -13,16 +16,10 @@ use crate::env::EnvUntyped;
 use crate::errors::Result;
 use crate::macros::invoke;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct EnvAlloc {
     pub(crate) env: EnvUntyped,
-}
-
-impl Clone for EnvAlloc {
-    fn clone(&self) -> Self {
-        self.env.allocator()
-    }
 }
 
 // Type bounds do nothing currently apart form showing explicitly in the docs.
@@ -30,6 +27,57 @@ impl Clone for EnvAlloc {
 #[allow(type_alias_bounds)]
 /// Memory allocated via [`EnvUntyped`].
 pub type JBox<T: ?Sized> = allocator_api2::boxed::Box<T, EnvAlloc>;
+
+/// Unmanaged JVMTI allocation
+#[derive(Debug)]
+#[repr(transparent)]
+#[must_use]
+pub struct JPtr<T: ?Sized>(NonNull<T>);
+
+impl<T: ?Sized> JPtr<T> {
+    /// # Safety
+    ///
+    /// Pointer must point to initialized memory allocated by JVMTI environment.
+    ///
+    /// Ownership of the allocation is transferred after this call.
+    pub unsafe fn new(ptr: NonNull<T>) -> Self {
+        Self(ptr)
+    }
+
+    pub fn raw(self) -> NonNull<T> {
+        self.0
+    }
+
+    pub fn manage(self, alloc: EnvAlloc) -> JBox<T> {
+        // SAFETY: see constructor
+        unsafe { alloc.boxed(self.0) }
+    }
+}
+
+impl<T: ?Sized> Deref for JPtr<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        // SAFETY: see constructor
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<T: ?Sized> DerefMut for JPtr<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        // SAFETY: see constructor
+        unsafe { self.0.as_mut() }
+    }
+}
+
+pub(crate) unsafe fn cast_box_slice<S, D>(boxed: JBox<[S]>) -> JBox<[D]> {
+    const {
+        assert!(size_of::<S>() == size_of::<D>());
+        assert!(align_of::<S>() == align_of::<D>());
+    };
+    let (slice, alloc) = JBox::into_non_null_with_allocator(boxed);
+    unsafe { alloc.boxed_slice(slice.cast::<D>().as_ptr(), slice.len()) }
+}
 
 /// Allocation and deallocation of memory used by JVM TI functionality. Can be
 /// used to provide working memory for agents, but Memory managed by JVM TI is
@@ -79,13 +127,13 @@ impl EnvUntyped {
         }
     }
 
-    pub fn allocator(&self) -> EnvAlloc {
-        // TODO: figure out if refcounting via local storage or similar is viable
-        // SAFETY: env is valid, even if this is a bit hacky cloning
-        let clone = unsafe { Self::from_raw(self.as_raw()) };
-        EnvAlloc { env: clone }
+    pub fn allocator(&self) -> &EnvAlloc {
+        // SAFETY: `EnvAlloc` is `repr(transparent)`
+        unsafe { transmute::<&Self, &EnvAlloc>(self) }
     }
+}
 
+impl EnvAlloc {
     /// Assume that `ptr` was allocated via this environment.
     ///
     /// Converts a raw unmanaged pointer to RAII managed with this environment.
@@ -96,8 +144,8 @@ impl EnvUntyped {
     /// Ownership of memory pointed to by `ptr` is transferred to [`JBox`] and may
     /// not be used anymore. The memory must have been allocated by this environment,
     /// with the exception that zero-sized allocation may be dangling (but well aligned).
-    pub unsafe fn boxed_non_null<T: ?Sized>(&self, ptr: NonNull<T>) -> JBox<T> {
-        unsafe { JBox::from_non_null_in(ptr, self.allocator()) }
+    pub unsafe fn boxed<T: ?Sized>(&self, ptr: NonNull<T>) -> JBox<T> {
+        unsafe { JBox::from_non_null_in(ptr, self.clone()) }
     }
 
     /// Assume that `len` elements were allocated at `ptr` via this environment.
@@ -107,26 +155,27 @@ impl EnvUntyped {
     ///
     /// # Safety
     ///
-    /// As with [`EnvUntyped::boxed_non_null`] or if `ptr.is_null() && len == 0` holds.
+    /// As with [`Self::boxed_non_null`], with allocation valid for `len` elements.
+    ///
+    /// Pointer may be `null` if `len` is zero.
     pub unsafe fn boxed_slice<T>(&self, ptr: *mut T, len: usize) -> JBox<[T]> {
-        debug_assert!(!ptr.is_null() || len == 0);
         let ptr = NonNull::new(ptr).unwrap_or_else(NonNull::dangling);
         let arr = NonNull::slice_from_raw_parts(ptr, len);
-        unsafe { self.boxed_non_null(arr) }
+        unsafe { self.boxed(arr) }
     }
 
     /// Assume that `ptr` was allocated via this environment and points to JNIStr.
     ///
     /// # Safety
     ///
-    /// As with [`EnvUntyped::boxed_non_null`] and [`JNIStr::from_ptr`].
+    /// As with [`Self::boxed_non_null`] and [`JNIStr::from_ptr`].
     pub unsafe fn boxed_jnistr(&self, ptr: NonNull<c_char>) -> JBox<JNIStr> {
         // SAFETY: caller ensures valid pointer
         let ptr: *const JNIStr = unsafe { JNIStr::from_ptr(ptr.as_ptr()) };
         // TODO: use `NonNull::from_ref` after MSRV at 1.89.0
         let str = unsafe { NonNull::new_unchecked(ptr.cast_mut()) };
         // SAFETY: caller ensures valid pointer
-        unsafe { self.boxed_non_null(str) }
+        unsafe { self.boxed(str) }
     }
 }
 

@@ -57,6 +57,7 @@ use crate::errors::JError;
 use crate::errors::Result;
 use crate::macros::invoke;
 use crate::memory::JBox;
+use crate::memory::cast_box_slice;
 use crate::version::JVMTIVersion;
 
 bitflags! {
@@ -170,19 +171,6 @@ unsafe fn assume_init_mut<T>(slice: &mut [MaybeUninit<T>]) -> &mut [T] {
     unsafe { transmute::<&mut [MaybeUninit<T>], &mut [T]>(slice) }
 }
 
-unsafe fn cast_box_slice<S, D>(boxed: JBox<[S]>) -> JBox<[D]> {
-    const {
-        assert!(size_of::<S>() == size_of::<D>());
-        assert!(align_of::<S>() == align_of::<D>());
-    };
-    let (slice, alloc) = JBox::into_non_null_with_allocator(boxed);
-    unsafe {
-        alloc
-            .env
-            .boxed_slice(slice.as_ptr().cast::<D>(), slice.len())
-    }
-}
-
 fn threads_action<'any, I, F>(threads: I, action: F) -> Result<Box<[Result<()>]>, Error>
 where
     I: IntoIterator,
@@ -234,7 +222,7 @@ impl EnvUntyped {
         let mut threads: *mut jthread = ptr::null_mut();
         unsafe {
             invoke!(self, v1, GetAllThreads, &mut count, &mut threads)?;
-            Ok(self.boxed_slice(threads, count as usize))
+            Ok(self.allocator().boxed_slice(threads, count as usize))
         }
     }
 
@@ -419,7 +407,7 @@ impl EnvUntyped {
             context_class_loader,
         } = self.thread_info_raw(thread.as_ref().as_raw())?;
         // SAFETY: name is guaranteed to be newly allocated MUTF-8 string
-        let name = NonNull::new(name).map(|ptr| unsafe { self.boxed_jnistr(ptr) });
+        let name = NonNull::new(name).map(|ptr| unsafe { self.allocator().boxed_jnistr(ptr) });
         // SAFETY: mutable reference to `env` guarantees top stack frame
         let thread_group = unsafe { JThreadGroup::from_raw(env, thread_group) };
         let context_class_loader = unsafe { JClassLoader::from_raw(env, context_class_loader) };
@@ -447,7 +435,7 @@ impl EnvUntyped {
                 &mut count,
                 &mut monitors,
             )?;
-            Ok(self.boxed_slice(monitors, count as usize))
+            Ok(self.allocator().boxed_slice(monitors, count as usize))
         }
     }
 
@@ -479,7 +467,7 @@ impl EnvUntyped {
                 &mut count,
                 &mut infos,
             )?;
-            Ok(self.boxed_slice(infos, count as usize))
+            Ok(self.allocator().boxed_slice(infos, count as usize))
         }
     }
 
@@ -556,7 +544,7 @@ impl EnvUntyped {
         let mut groups: *mut jthreadGroup = ptr::null_mut();
         unsafe {
             invoke!(self, v1, GetTopThreadGroups, &mut count, &mut groups)?;
-            Ok(self.boxed_slice(groups, count as usize))
+            Ok(self.allocator().boxed_slice(groups, count as usize))
         }
     }
 
@@ -593,7 +581,7 @@ impl EnvUntyped {
             is_daemon,
         } = self.thread_group_info_raw(group.as_ref().as_raw())?;
         // SAFETY: name is guaranteed to be newly allocated MUTF-8 string
-        let name = NonNull::new(name).map(|ptr| unsafe { self.boxed_jnistr(ptr) });
+        let name = NonNull::new(name).map(|ptr| unsafe { self.allocator().boxed_jnistr(ptr) });
         // SAFETY: mutable reference to `env` guarantees top stack frame
         let parent = unsafe { JThreadGroup::from_raw(env, parent) };
         // SAFETY: it comes as JVMTI saw it
@@ -626,8 +614,9 @@ impl EnvUntyped {
                 &mut groups_count,
                 &mut groups,
             )?;
-            let threads = self.boxed_slice(threads, threads_count as usize);
-            let groups = self.boxed_slice(groups, groups_count as usize);
+            let alloc = self.allocator();
+            let threads = alloc.boxed_slice(threads, threads_count as usize);
+            let groups = alloc.boxed_slice(groups, groups_count as usize);
             Ok(ThreadGroupChildren { threads, groups })
         }
     }

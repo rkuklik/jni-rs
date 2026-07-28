@@ -40,6 +40,7 @@ use crate::events::CallbackBuilder;
 use crate::macros::invoke;
 use crate::macros::jenum;
 use crate::memory::JBox;
+use crate::memory::cast_box_slice;
 
 #[derive(Debug)]
 #[non_exhaustive]
@@ -56,20 +57,6 @@ pub enum TagRequest {
 }
 
 pub type JTag = NonZero<jlong>;
-
-unsafe fn cast_box_slice<S, D>(boxed: JBox<[S]>) -> JBox<[D]> {
-    // TODO: unify helper with one in `threads` module
-    const {
-        assert!(size_of::<S>() == size_of::<D>());
-        assert!(align_of::<S>() == align_of::<D>());
-    };
-    let (slice, alloc) = JBox::into_non_null_with_allocator(boxed);
-    unsafe {
-        alloc
-            .env
-            .boxed_slice(slice.as_ptr().cast::<D>(), slice.len())
-    }
-}
 
 impl EnvUntyped {
     pub fn set_tag_raw(&self, object: jobject, tag: jlong) -> Result<()> {
@@ -112,9 +99,10 @@ impl EnvUntyped {
                 if objs { &mut pobjs } else { ptr::null_mut() },
                 if tags { &mut ptags } else { ptr::null_mut() },
             )?;
+            let alloc = self.allocator();
             let count = count as usize;
-            let objs = objs.then(|| self.boxed_slice(pobjs, count));
-            let tags = tags.then(|| self.boxed_slice(ptags, count));
+            let objs = objs.then(|| alloc.boxed_slice(pobjs, count));
+            let tags = tags.then(|| alloc.boxed_slice(ptags, count));
             Ok(TaggedObjects {
                 objects: objs,
                 tags,

@@ -19,7 +19,7 @@ use crate::errors::SupportError;
 use crate::macros::invoke;
 use crate::version::JVMTIVersion;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct EnvUntyped {
     ptr: NonNull<jvmtiEnv>,
@@ -113,7 +113,7 @@ impl EnvUntyped {
 
 pub type EnvError<T> = ContextError<(EnvUntyped, T), Error>;
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[repr(transparent)]
 pub struct Env<T> {
     untyped: EnvUntyped,
