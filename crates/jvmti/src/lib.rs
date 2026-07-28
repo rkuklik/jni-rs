@@ -24,5 +24,6 @@ pub mod events;
 pub mod heap;
 pub mod macros;
 pub mod memory;
+pub mod property;
 pub mod thread;
 pub mod version;
